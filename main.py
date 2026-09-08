@@ -102,7 +102,7 @@ class PromptPresetPlugin(Star):
             assembler=self.assembler,
             get_variables=lambda: dict(self.config.get("variables") or {}),
             set_variables=self._save_variables,
-            context_provider=self._build_var_context,
+            context_provider=self._api_var_context,
         )
         self._register_dashboard_routes()
 
@@ -243,6 +243,15 @@ class PromptPresetPlugin(Star):
             }
         )
         return ctx
+
+    async def _api_var_context(self) -> dict:
+        """面板 preview 用的变量上下文。
+
+        PromptPresetAPI 的 context_provider 约定是 async 无参、返回含 persona 的
+        完整上下文；_build_var_context 需要 persona_text 入参，在此适配。
+        """
+        persona_text = await self._get_persona_text(None)
+        return self._build_var_context(persona_text)
 
     # ------------------------------------------------------------------
     # /preset 命令
