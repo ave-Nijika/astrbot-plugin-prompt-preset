@@ -34,6 +34,28 @@ class MockContext:
         self.persona_manager = MockPersonaManager(persona, persona_error)
 
 
+class MockDashboardContext(MockContext):
+    """带 register_web_api 的 context 替身：记录注册的面板路由。"""
+
+    def __init__(self, persona=None, persona_error: Exception | None = None):
+        super().__init__(persona, persona_error)
+        self.registered_routes: list[tuple] = []
+
+    def register_web_api(self, route, handler, methods, desc):
+        self.registered_routes.append((route, handler, list(methods), desc))
+
+
+class FakeApiRequest:
+    """astrbot.api.web request 替身（monkeypatch main._api_request 用）。"""
+
+    def __init__(self, method: str = "GET", payload=None):
+        self.method = method
+        self._payload = payload
+
+    async def json(self, default=None):
+        return self._payload if self._payload is not None else default
+
+
 class MockProviderRequest:
     """ProviderRequest 替身：只暴露本插件读写的两个字段。"""
 
@@ -42,17 +64,20 @@ class MockProviderRequest:
         self.contexts = list(contexts) if contexts is not None else []
 
 
-def make_plugin(tmp_path, config: dict | None = None, persona=None, persona_error=None):
+def make_plugin(
+    tmp_path,
+    config: dict | None = None,
+    persona=None,
+    persona_error=None,
+    context=None,
+):
     """构造挂在 tmp_path 存储上的插件实例（不触碰真实 data/ 目录）。"""
     from astrbot_plugin_prompt_preset.main import PromptPresetPlugin
 
     cfg = {"enable": True, "variables": {}}
     cfg.update(config or {})
-    return PromptPresetPlugin(
-        MockContext(persona=persona, persona_error=persona_error),
-        config=cfg,
-        store_path=tmp_path / "presets.json",
-    )
+    ctx = context if context is not None else MockContext(persona=persona, persona_error=persona_error)
+    return PromptPresetPlugin(ctx, config=cfg, store_path=tmp_path / "presets.json")
 
 
 def make_store(tmp_path, entries=None):

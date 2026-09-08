@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>提示词编排</title>
+  <link rel="stylesheet" href="./style.css">
+  <!-- AstrBot Pages bridge SDK（若未显式引入，dashboard 也会自动注入） -->
+  <script src="/api/plugin/page/bridge-sdk.js"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="toolbar-left">
+      <h1>提示词编排</h1>
+      <span id="entry-count" class="count-badge">0 条</span>
+    </div>
+    <div class="toolbar-actions">
+      <button id="btn-add" class="btn primary" type="button">➕ 新增条目</button>
+      <button id="btn-import" class="btn" type="button">📥 导入 JSON</button>
+      <button id="btn-export" class="btn" type="button">📤 导出 JSON</button>
+      <button id="btn-variables" class="btn" type="button">🔀 自定义变量</button>
+      <button id="btn-preview" class="btn" type="button">👁 组装预览</button>
+    </div>
+  </header>
+
+  <main class="split">
+    <section class="list-pane">
+      <div class="pane-hint">拖拽条目调整顺序（发送给 LLM 时按此升序）</div>
+      <ul id="entry-list" class="entry-list"></ul>
+      <div id="list-empty" class="pane-empty hidden">
+        暂无条目。<br>点击右上角「新增条目」开始编排。
+      </div>
+    </section>
+
+    <section class="editor-pane">
+      <form id="editor" class="editor hidden" autocomplete="off">
+        <div class="field-grid">
+          <label class="field field-name">名称
+            <input id="f-name" type="text" placeholder="条目名（管理用，不发给 LLM）">
+          </label>
+          <label class="field">身份 role
+            <select id="f-role">
+              <option value="system">system（系统）</option>
+              <option value="user">user（用户）</option>
+              <option value="assistant">assistant（助手）</option>
+            </select>
+          </label>
+          <label class="field">来源 source
+            <select id="f-source">
+              <option value="text">text（自定义文本）</option>
+              <option value="persona">persona（当前人格全文）</option>
+              <option value="chat_history">chat_history（对话历史）</option>
+            </select>
+          </label>
+          <label class="field field-order">排序 order
+            <input id="f-order" type="number" step="any" placeholder="0">
+          </label>
+          <label class="field field-switch">启用
+            <input id="f-enabled" type="checkbox" class="switch">
+          </label>
+        </div>
+
+        <p id="source-hint" class="source-hint hidden"></p>
+
+        <label class="field field-content">内容 content
+          <textarea id="f-content" rows="16" spellcheck="false"
+            placeholder="支持变量：{{persona}} {{user_name}} {{bot_name}} {{time}} {{date}} {{datetime}}"></textarea>
+        </label>
+
+        <div class="editor-actions">
+          <button id="btn-save" class="btn primary" type="submit">💾 保存</button>
+          <button id="btn-delete" class="btn danger" type="button">🗑 删除</button>
+          <span id="f-id" class="id-label"></span>
+          <span id="editor-note" class="editor-note"></span>
+        </div>
+      </form>
+      <div id="editor-empty" class="pane-empty">从左侧选择一个条目，或点击「新增条目」。</div>
+    </section>
+  </main>
+
+  <section id="preview-drawer" class="preview-drawer hidden" aria-label="组装预览">
+    <div class="preview-head">
+      <h2>👁 组装预览</h2>
+      <span class="preview-note">与 LLM 请求时同一套引擎；chat_history 条目在请求时展开实际对话历史。</span>
+      <button id="preview-close" class="btn" type="button">✕ 收起</button>
+    </div>
+    <ol id="preview-rows" class="preview-rows"></ol>
+  </section>
+
+  <footer class="statusbar">
+    <span id="status-text">就绪</span>
+    <span id="status-extra"></span>
+  </footer>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div id="modal-mask" class="modal-mask hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3 id="modal-title"></h3>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-extra" class="modal-extra"></div>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn" type="button">取消</button>
+        <button id="modal-ok" class="btn primary" type="button">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
