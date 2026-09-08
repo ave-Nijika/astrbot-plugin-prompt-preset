@@ -19,9 +19,23 @@ from astrbot.api.star import Context, Star, register
 try:  # AstrBot 以 data.plugins.<目录名>.main 作为包导入，相对导入可用
     from .core.assembler import PromptAssembler
     from .core.entry_store import EntryStore, EntryValidationError
+    from .dashboard_api import ApiError, PromptPresetAPI
 except ImportError:  # 兜底：以普通目录方式加载时
     from core.assembler import PromptAssembler
     from core.entry_store import EntryStore, EntryValidationError
+    from dashboard_api import ApiError, PromptPresetAPI
+
+try:  # 插件 Web API 的 request 上下文（v4.24+ dashboard 提供）
+    from astrbot.api.web import error_response, json_response
+    from astrbot.api.web import request as _api_request
+except ImportError:  # 测试环境/旧版本：仅保留 M1 能力
+    _api_request = None
+
+    def json_response(data, status_code: int = 200):
+        return {"status": "ok", "data": data}
+
+    def error_response(message: str, status_code: int = 400):
+        return {"status": "error", "message": message, "status_code": status_code}
 
 PLUGIN_NAME = "astrbot_plugin_prompt_preset"
 PLUGIN_DATA_DIR = Path("data/plugin_data") / PLUGIN_NAME
@@ -33,13 +47,14 @@ USAGE = (
     "📖 提示词条目管理：\n"
     "/preset list —— 列出所有条目\n"
     "/preset show <name> —— 显示条目详情\n"
-    "/preset add <order> <role> <name> <content> —— 添加条目（role: system/user/assistant）\n"
+    "/preset add <order> <role> <name> <content> —— 添加条目（role: system/user/assistant；"
+    "仅 source=text，persona/chat_history 条目请用 WebUI 面板或编辑 presets.json）\n"
     "/preset del <name> —— 删除条目\n"
     "/preset move <name> <new_order> —— 修改排序\n"
     "/preset on <name> / off <name> —— 启用/禁用\n"
     "/preset reload —— 重新加载 presets.json\n"
     "/living_status —— 组装结果预览\n"
-    "提示：persona/chat_history 类型条目与含空格内容请直接编辑 presets.json；条目名不能含空格。"
+    "提示：WebUI → 插件管理 → 本插件 → Pages 可打开条目编排面板；条目名不能含空格。"
 )
 
 
@@ -64,8 +79,8 @@ def parse_preset_message(message_str: str) -> tuple[str, str]:
 @register(
     PLUGIN_NAME,
     "水煮冰糕",
-    "提示词条目编排：完全接管 LLM 请求的消息组装，条目顺序/角色/开关完全由用户控制。",
-    "v1.0.0",
+    "提示词条目编排：完全接管 LLM 请求的消息组装，条目顺序/角色/开关完全由用户控制。含 WebUI 条目编排面板。",
+    "v1.1.0",
 )
 class PromptPresetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None, store_path=None):
@@ -80,11 +95,98 @@ class PromptPresetPlugin(Star):
         self.store = EntryStore(store_file)
         self._seed_entries_from_config()
         self.assembler = PromptAssembler(self.store)
+        self.api = self._build_api()
+        self._register_dashboard_api()
         logger.info(
             "[prompt_preset] 初始化完成：%d 条条目（%s）",
             len(self.store.list_entries()),
             store_file,
         )
+
+    # ------------------------------------------------------------------
+    # WebUI 面板后端（AstrBot Plugin Pages + register_web_api）
+    # ------------------------------------------------------------------
+    def _build_api(self) -> PromptPresetAPI:
+        """把插件配置/组装引擎接进框架无关的 API 核心。"""
+        config = self.config
+
+        def get_variables() -> dict:
+            return dict(config.get("variables") or {})
+
+        def set_variables(variables: dict) -> None:
+            config["variables"] = dict(variables)
+            save = getattr(config, "save_config", None)
+            if callable(save):
+                save()
+
+        async def context_provider() -> dict:
+            persona_text = await self._get_persona_text(None)
+            return self._build_var_context(persona_text)
+
+        return PromptPresetAPI(
+            store=self.store,
+            assembler=self.assembler,
+            get_variables=get_variables,
+            set_variables=set_variables,
+            context_provider=context_provider,
+        )
+
+    def _register_dashboard_api(self) -> None:
+        """注册 REST 端点（需求 A 的路由表；POST 别名供 Pages bridge 使用）。"""
+        register = getattr(self.context, "register_web_api", None)
+        if not callable(register):
+            logger.warning("[prompt_preset] 当前 AstrBot 不支持 register_web_api，WebUI 面板 API 不可用。")
+            return
+        p = f"/{PLUGIN_NAME}"
+        routes = (
+            (f"{p}/entries", self._api_entries, ["GET", "POST"], "条目列表 / 新增条目"),
+            (f"{p}/entries/reorder", self._api_reorder, ["PUT", "POST"], "按 id 顺序批量重排序"),
+            (f"{p}/entries/<item_id>", self._api_entry, ["PUT", "POST"], "更新条目（POST 为 Pages bridge 别名）"),
+            (f"{p}/entries/<item_id>", self._api_entry_delete, ["DELETE"], "删除条目"),
+            (f"{p}/entries/<item_id>/delete", self._api_entry_delete, ["POST"], "删除条目（Pages bridge 别名）"),
+            (f"{p}/variables", self._api_variables, ["GET", "PUT", "POST"], "自定义变量读取 / 更新"),
+            (f"{p}/preview", self._api_preview, ["GET"], "组装结果预览"),
+        )
+        for route, handler, methods, desc in routes:
+            try:
+                register(route, handler, methods, desc)
+            except Exception as e:
+                logger.error(f"[prompt_preset] 注册面板路由 {route} 失败：{e}")
+        logger.info(f"[prompt_preset] WebUI 面板 API 已注册（{len(routes)} 条路由）。")
+
+    async def _guard(self, factory):
+        """统一错误转换：ApiError → error_response（前端 bridge 收到 reject）。"""
+        try:
+            return json_response(await factory())
+        except ApiError as e:
+            return error_response(str(e), status_code=e.status_code)
+
+    async def _api_entries(self):
+        if _api_request is not None and (_api_request.method or "").upper() == "POST":
+            payload = await _api_request.json(default=None)
+            return await self._guard(lambda: self.api.entries_post(payload))
+        return await self._guard(self.api.entries_get)
+
+    async def _api_reorder(self):
+        payload = await _api_request.json(default=None) if _api_request is not None else None
+        return await self._guard(lambda: self.api.entries_reorder(payload))
+
+    async def _api_entry(self, item_id: str):
+        payload = await _api_request.json(default=None) if _api_request is not None else None
+        return await self._guard(lambda: self.api.entry_put(item_id, payload))
+
+    async def _api_entry_delete(self, item_id: str):
+        return await self._guard(lambda: self.api.entry_delete(item_id))
+
+    async def _api_variables(self):
+        method = (_api_request.method or "GET").upper() if _api_request is not None else "GET"
+        if method in ("PUT", "POST"):
+            payload = await _api_request.json(default=None)
+            return await self._guard(lambda: self.api.variables_put(payload))
+        return await self._guard(self.api.variables_get)
+
+    async def _api_preview(self):
+        return await self._guard(self.api.preview_get)
 
     # ------------------------------------------------------------------
     # 初始化
@@ -128,8 +230,8 @@ class PromptPresetPlugin(Star):
         # 每次动态读取，配合 WebUI 修改配置即时生效。
         return bool(self.config.get("enable", True))
 
-    async def _get_persona_text(self, event: AstrMessageEvent) -> str:
-        """当前 persona 全文（v4 的 Personality.prompt 字段）。"""
+    async def _get_persona_text(self, event: AstrMessageEvent | None) -> str:
+        """当前 persona 全文（v4 的 Personality.prompt 字段）；event=None 时取默认 persona。"""
         try:
             persona_manager = getattr(self.context, "persona_manager", None)
             if persona_manager is None:

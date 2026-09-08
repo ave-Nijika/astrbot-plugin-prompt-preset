@@ -34,6 +34,7 @@ def _install_astrbot_stubs() -> None:
     api_event = types.ModuleType("astrbot.api.event")
     api_filter = types.ModuleType("astrbot.api.event.filter")
     api_provider = types.ModuleType("astrbot.api.provider")
+    api_web = types.ModuleType("astrbot.api.web")
 
     api.logger = logging.getLogger("astrbot")
 
@@ -86,6 +87,26 @@ def _install_astrbot_stubs() -> None:
             self.contexts = list(contexts) if contexts is not None else []
             self.prompt = prompt
 
+    # astrbot.api.web：插件 Web API 的 request 上下文与响应构造器
+    class ApiRequest:
+        method = "GET"
+        headers = {}
+        query = {}
+        path_params = {}
+
+        async def json(self, default=None):
+            return default
+
+    def _json_response(data, status_code=200):
+        return {"status": "ok", "data": data, "status_code": status_code}
+
+    def _error_response(message, status_code=400):
+        return {"status": "error", "message": message, "status_code": status_code}
+
+    api_web.request = ApiRequest()
+    api_web.json_response = _json_response
+    api_web.error_response = _error_response
+
     api_event.AstrMessageEvent = AstrMessageEvent
     api_event.filter = api_filter.filter
     api_provider.ProviderRequest = ProviderRequest
@@ -98,6 +119,7 @@ def _install_astrbot_stubs() -> None:
         "astrbot.api.event": api_event,
         "astrbot.api.event.filter": api_filter,
         "astrbot.api.provider": api_provider,
+        "astrbot.api.web": api_web,
     }.items():
         sys.modules.setdefault(name, module)
 
