@@ -12,13 +12,18 @@
    其余消息完全替换 req.contexts；
 4. 条目列表为空或全部 disabled → 不做任何操作（保留 AstrBot 原生行为）。
 
+M3 新增变量：组装覆盖前捕获 ``{{native_system}}``（AstrBot 原生 system_prompt
+全文，含安全模式/工具调用说明等）与 ``{{memories}}``（req.contexts 中
+LivingMemory 注入的记忆文本），供条目按需引用；条目不引用时组装结果与
+M1 完全一致。
+
 本模块不依赖 astrbot，便于独立测试。
 """
 
 from __future__ import annotations
 
 from .entry_store import EntryStore
-from .variables import VariableResolver
+from .variables import VariableResolver, extract_memories
 
 SYSTEM_JOIN = "\n\n"
 """多条 system 条目拼入 system_prompt 时的连接符。"""
@@ -45,6 +50,10 @@ class PromptAssembler:
         if not entries:
             return False
         chat_history = list(getattr(req, "contexts", None) or [])
+        # M3：在覆盖原生内容之前捕获变量取值。条目不引用时二者不影响组装结果，
+        # 原生 system_prompt 照旧被丢弃（M1 语义不变）。
+        self._context["native_system"] = getattr(req, "system_prompt", "") or ""
+        self._context["memories"] = extract_memories(chat_history)
         messages = self.build_messages(entries, chat_history, persona_text)
         if not messages:
             return False
