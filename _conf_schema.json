@@ -1,0 +1,22 @@
+{
+  "entries": {
+    "description": "提示词条目列表",
+    "type": "object",
+    "hint": "JSON 数组，按 order 升序组装。仅在插件首次初始化时灌入 presets.json，此后以 data/plugin_data/astrbot_plugin_prompt_preset/presets.json 为唯一事实源。",
+    "default": [
+      {"order": 0, "role": "system", "source": "persona", "content": "", "enabled": true, "name": "人格"},
+      {"order": 10, "role": "system", "source": "text", "content": "", "enabled": true, "name": "自定义提示词"}
+    ]
+  },
+  "variables": {
+    "description": "自定义变量",
+    "type": "object",
+    "hint": "条目 content 中的 {{key}} 会被替换为此处的值。内置变量 {{persona}}/{{user_name}}/{{bot_name}}/{{time}}/{{date}}/{{datetime}} 始终可用。",
+    "default": {"user_name": "主人", "bot_name": "凛"}
+  },
+  "enable": {
+    "description": "启用本插件",
+    "type": "bool",
+    "default": true
+  }
+}
