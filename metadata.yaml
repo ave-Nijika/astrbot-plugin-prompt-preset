@@ -1,5 +1,5 @@
 name: astrbot_plugin_prompt_preset
 description: 提示词条目编排——像 SillyTavern 预设那样自由添加/排序/开关提示词条目，完全接管 LLM 请求的消息组装（persona、对话历史、自定义文本全部由条目控制）。含 WebUI 条目编排面板（插件详情页 → Pages）。
 version: v1.1.0
-author: 水煮冰糕
-repo: ""
+author: ave-Nijika
+repo: https://github.com/ave-Nijika/astrbot-plugin-prompt-preset
