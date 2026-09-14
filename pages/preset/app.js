@@ -104,6 +104,14 @@ function renderList() {
     const source = tagEl("tag tag-source", entry.source);
     const order = tagEl("span entry-order", String(entry.order));
 
+    // M4：预置条目显示锁形标记 + 「原生」徽标（不可删除，可编辑/禁用/排序）
+    let presetBadge = null;
+    if (entry.preset) {
+      li.classList.add("preset-entry");
+      li.title = "预置条目：不可删除，如不需要请禁用";
+      presetBadge = tagEl("tag tag-preset", "🔒 原生");
+    }
+
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
     toggle.className = "switch";
@@ -112,7 +120,9 @@ function renderList() {
     toggle.addEventListener("change", () => toggleEntry(entry, toggle));
     toggle.addEventListener("click", (e) => e.stopPropagation());
 
-    li.append(handle, toggle, name, role, source, order);
+    li.append(handle, toggle);
+    if (presetBadge) li.appendChild(presetBadge);
+    li.append(name, role, source, order);
     li.addEventListener("click", () => selectEntry(entry.id));
     bindDrag(li);
     listEl.appendChild(li);
@@ -208,6 +218,11 @@ function renderEditor() {
   $("#f-content").value = state.isNew ? "" : entry.content || "";
   $("#f-id").textContent = state.isNew ? "新条目（保存后生成 id）" : `id: ${entry.id}`;
   $("#btn-delete").textContent = state.isNew ? "✕ 取消" : "🗑 删除";
+  // M4：预置条目删除按钮置灰（后端同样拦截，双保险）
+  const isPreset = Boolean(!state.isNew && entry.preset);
+  const delBtn = $("#btn-delete");
+  delBtn.disabled = isPreset;
+  delBtn.title = isPreset ? "预置条目不可删除，如不需要请禁用该条目" : "";
   $("#editor-note").textContent = "";
   applySourceUI(source);
 }
@@ -287,6 +302,11 @@ async function deleteOrCancel() {
   }
   const entry = state.entries.find((e) => e.id === state.selectedId);
   if (!entry) return;
+  if (entry.preset) {
+    // M4：预置条目不可删除（后端同样拦截）
+    toast("预置条目不可删除，如不需要请禁用该条目", true);
+    return;
+  }
   if (!window.confirm(`确认删除条目「${entry.name}」？`)) return;
   await api(() => bridge.apiPost(`entries/${entry.id}/delete`), `已删除「${entry.name}」`);
   state.selectedId = null;

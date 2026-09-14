@@ -10,7 +10,7 @@ from astrbot_plugin_prompt_preset.core.entry_store import (
     VALID_ROLES,
     VALID_SOURCES,
 )
-from tests.helpers import make_store
+from tests.helpers import _strip_presets, make_store
 
 ENTRY = {
     "order": 1,
@@ -174,7 +174,9 @@ class TestPersistence:
         assert store.list_entries()[0]["name"] == "条目一"
 
     def test_load_missing_file_empty(self, tmp_path):
-        assert EntryStore(tmp_path / "none.json").list_entries() == []
+        store = EntryStore(tmp_path / "none.json")
+        _strip_presets(store)  # M4 起新装自动预置，通用语义剔除（见 make_store 注释）
+        assert store.list_entries() == []
 
     def test_load_coerces_and_sorts(self, tmp_path):
         path = tmp_path / "presets.json"
@@ -186,7 +188,9 @@ class TestPersistence:
             ),
             encoding="utf-8",
         )
-        entries = EntryStore(path).list_entries()
+        store = EntryStore(path)
+        _strip_presets(store)  # M4 自动预置剔除
+        entries = store.list_entries()
         assert [e["name"] for e in entries] == ["缺省", "大"]
         assert entries[1]["role"] == "assistant"
         assert entries[0]["source"] == "text"
@@ -200,13 +204,16 @@ class TestPersistence:
             ),
             encoding="utf-8",
         )
-        entries = EntryStore(path).list_entries()
+        store = EntryStore(path)
+        _strip_presets(store)  # M4 自动预置剔除
+        entries = store.list_entries()
         assert [e["name"] for e in entries] == ["好的"]
 
     def test_load_corrupt_json_backed_up(self, tmp_path):
         path = tmp_path / "presets.json"
         path.write_text("{不是 JSON", encoding="utf-8")
         store = EntryStore(path)
+        _strip_presets(store)  # M4 自动预置剔除
         assert store.list_entries() == []
         assert (tmp_path / "presets.json.bak").read_text(encoding="utf-8") == "{不是 JSON"
         # 且 store 可继续正常使用
@@ -216,4 +223,5 @@ class TestPersistence:
     def test_save_leaves_no_tmp_file(self, tmp_path):
         store = make_store(tmp_path, [ENTRY])
         store.add({"order": 2, "name": "第二条"})
-        assert sorted(p.name for p in tmp_path.iterdir()) == ["presets.json"]
+        # initialized.flag 为 M4 预置一次性标记（make_store 首次初始化时写入）
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["initialized.flag", "presets.json"]

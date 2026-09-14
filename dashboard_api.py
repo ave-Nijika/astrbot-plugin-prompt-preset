@@ -81,8 +81,11 @@ class PromptPresetAPI:
         return {"entry": updated}
 
     async def entry_delete(self, item_id: str) -> dict:
-        """删除条目。"""
-        removed = self.store.remove(item_id)
+        """删除条目（M4：预置条目被 store 拒绝，转为 400 + 明确提示）。"""
+        try:
+            removed = self.store.remove(item_id)
+        except EntryValidationError as e:
+            raise ApiError(str(e)) from None
         if not removed:
             raise ApiError(f"条目不存在：{item_id}", status_code=404)
         return {"removed": removed["name"], "id": item_id}

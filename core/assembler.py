@@ -23,6 +23,12 @@ M1 完全一致。
 from __future__ import annotations
 
 from .entry_store import EntryStore
+from .splitter import (
+    NATIVE_SYSTEM,
+    PREVIEW_PLACEHOLDER,
+    native_variable_names,
+    split_native_system,
+)
 from .variables import VariableResolver, extract_memories
 
 SYSTEM_JOIN = "\n\n"
@@ -50,10 +56,13 @@ class PromptAssembler:
         if not entries:
             return False
         chat_history = list(getattr(req, "contexts", None) or [])
-        # M3：在覆盖原生内容之前捕获变量取值。条目不引用时二者不影响组装结果，
+        # M3/M4：在覆盖原生内容之前捕获变量取值。条目不引用时二者不影响组装结果，
         # 原生 system_prompt 照旧被丢弃（M1 语义不变）。
-        self._context["native_system"] = getattr(req, "system_prompt", "") or ""
+        native_system = getattr(req, "system_prompt", "") or ""
+        self._context[NATIVE_SYSTEM] = native_system
         self._context["memories"] = extract_memories(chat_history)
+        # M4：整块快照按内置注入块切分为 native_* 独立变量。
+        self._context.update(split_native_system(native_system))
         messages = self.build_messages(entries, chat_history, persona_text)
         if not messages:
             return False
@@ -67,16 +76,22 @@ class PromptAssembler:
     def build_messages(
         self, entries: list[dict], chat_history: list[dict], persona_text: str
     ) -> list[dict]:
-        """按 order 升序把条目展开为消息列表（不写回 req）。"""
+        """按 order 升序把条目展开为消息列表（不写回 req）。
+
+        M4 空值跳过：source=text 条目经变量替换后 strip 为空的不产生任何消息
+        （如健康模式关闭时 ``{{native_safety}}`` 为空，对应条目自动不出现），
+        避免空消息/空行污染。persona / chat_history 条目不受影响。
+        """
         resolver = VariableResolver({**self._context, "persona": persona_text})
         messages: list[dict] = []
         for entry in sorted(entries, key=lambda e: float(e.get("order", 0.0))):
             source = entry.get("source", "text")
             role = entry.get("role", "system")
             if source == "text":
-                messages.append(
-                    {"role": role, "content": resolver.resolve(entry.get("content", ""))}
-                )
+                content = resolver.resolve(entry.get("content", ""))
+                if not content.strip():
+                    continue
+                messages.append({"role": role, "content": content})
             elif source == "persona":
                 messages.append({"role": role, "content": persona_text or ""})
             elif source == "chat_history":
@@ -90,9 +105,17 @@ class PromptAssembler:
         persona_text: str = "",
         width: int = 50,
     ) -> list[dict]:
-        """组装结果预览（/living_status 调试用），返回每条启用条目的一行摘要。"""
+        """组装结果预览（/living_status 与面板预览用），返回每条启用条目的一行摘要。
+
+        M4：preview 没有真实 req，native_system 及各 native_* 切分变量无法取到
+        真实值——为它们填占位说明，避免面板上出现裸 ``{{...}}`` 占位符让用户
+        误以为坏了。若上下文里已有真实值（如同一次进程内刚组装过），则保留真实值。
+        """
         history = list(chat_history or [])
-        resolver = VariableResolver({**self._context, "persona": persona_text})
+        resolver_context = {**self._context, "persona": persona_text}
+        for name in native_variable_names():
+            resolver_context.setdefault(name, PREVIEW_PLACEHOLDER)
+        resolver = VariableResolver(resolver_context)
         rows: list[dict] = []
         for entry in self._enabled_entries():
             source = entry.get("source", "text")

@@ -106,6 +106,14 @@ button { font: inherit; color: inherit; }
 .btn.danger { color: var(--danger); border-color: var(--danger); }
 .btn.danger:hover { background: var(--danger); color: #fff; }
 
+.btn.danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+.btn.danger:disabled:hover { background: var(--bg-inset); color: var(--text-dim); }
+
 /* ---------------- 主分栏 ---------------- */
 .split {
   flex: 1;
@@ -198,6 +206,8 @@ button { font: inherit; color: inherit; }
 .tag-role-assistant { color: var(--role-assistant); }
 
 .tag-source { color: var(--text-dim); border-style: dashed; }
+
+.tag-preset { color: var(--accent); border-style: solid; flex: none; }
 
 .entry-order {
   flex: none;

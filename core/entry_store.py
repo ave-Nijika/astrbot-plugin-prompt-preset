@@ -15,6 +15,7 @@ store 额外为每个条目生成一个管理用短 ``id``（不参与组装）�
 from __future__ import annotations
 
 import copy
+import datetime as _dt
 import json
 import math
 import os
@@ -27,6 +28,75 @@ logger = logging.getLogger("astrbot.plugin.prompt_preset")
 
 VALID_ROLES = ("system", "user", "assistant")
 VALID_SOURCES = ("text", "persona", "chat_history")
+
+PRESET_FLAG_FILENAME = "initialized.flag"
+"""预置一次性标记文件名（与 presets.json 同目录），内容为写入时间戳。"""
+
+PRESET_DELETE_MESSAGE = "预置条目不可删除，如不需要请禁用该条目"
+
+NATIVE_BLOCK_ORDERS = {
+    # AstrBot v4.28 内置块真实执行顺序（core/splitter.py 注册表注释含源码出处）：
+    # safety 最后前置到最前，websearch 引用提示最后注入。
+    "native_safety": 100.0,
+    "native_genui": 110.0,
+    "native_persona": 120.0,
+    "native_default_persona": 130.0,
+    "native_skills": 140.0,
+    "native_router": 150.0,
+    "native_sandbox": 160.0,
+    "native_local_mode": 170.0,
+    "native_tools": 180.0,
+    "native_live": 190.0,
+    "native_websearch": 200.0,
+}
+
+DEFAULT_PRESET_ENTRIES: list[dict] = [
+    {
+        "id": f"preset-{name}",
+        "order": order,
+        "role": "system",
+        "source": "text",
+        "content": "{{" + name + "}}",
+        "enabled": True,
+        "name": f"原生-{label}",
+        "preset": True,
+    }
+    for name, order, label in (
+        ("native_safety", 100.0, "安全模式"),
+        ("native_genui", 110.0, "ChatUI生成"),
+        ("native_persona", 120.0, "人格说明"),
+        ("native_default_persona", 130.0, "默认人格"),
+        ("native_skills", 140.0, "技能说明"),
+        ("native_router", 150.0, "路由提示"),
+        ("native_sandbox", 160.0, "沙箱说明"),
+        ("native_local_mode", 170.0, "本地模式"),
+        ("native_tools", 180.0, "工具说明"),
+        ("native_live", 190.0, "Live模式"),
+        ("native_websearch", 200.0, "搜索引用"),
+    )
+] + [
+    {
+        "id": "preset-native-other",
+        "order": 900.0,
+        "role": "system",
+        "source": "text",
+        "content": "{{native_other}}",
+        "enabled": True,
+        "name": "原生-其他插件注入",
+        "preset": True,
+    },
+    {
+        # 对话历史：source=chat_history 展开原始 contexts（role 由消息自带）。
+        "id": "preset-chat-history",
+        "order": 1000.0,
+        "role": "system",
+        "source": "chat_history",
+        "content": "",
+        "enabled": True,
+        "name": "对话历史",
+        "preset": True,
+    },
+]
 
 
 class EntryValidationError(ValueError):
@@ -45,6 +115,47 @@ class EntryStore:
         self._entries: list[dict] = []
         self._lock = threading.RLock()
         self.load()
+        self._ensure_presets()
+
+    def _ensure_presets(self) -> None:
+        """预置默认条目集（M4，一次性）。
+
+        触发条件只看初始化标记（``initialized.flag``），不看条目列表——已有
+        旧条目的老用户升级后同样追加预置，拿到原生块保护。预置动作：把默认
+        模板条目**追加**到现有列表尾部（不删除、不修改任何已有条目），保存后
+        写入标记；标记存在则永不再次预置。预置条目带固定 id，标记写入前若
+        发生中断，下次启动按 id 去重，不会重复追加。
+        """
+        flag_path = self.path.parent / PRESET_FLAG_FILENAME
+        with self._lock:
+            if flag_path.exists():
+                return
+            existing_ids = {e.get("id") for e in self._entries}
+            to_add = [e for e in DEFAULT_PRESET_ENTRIES if e["id"] not in existing_ids]
+            if to_add:
+                has_empty_scaffold = any(
+                    e.get("source") == "text" and not (e.get("content") or "").strip()
+                    for e in self._entries
+                )
+                for entry in to_add:
+                    self._entries.append(_coerce_entry(entry))
+                self.save()
+                logger.info(
+                    "[prompt_preset] 已预置 %d 条默认条目（原生内容保护），可在面板中禁用不需要的条目。",
+                    len(to_add),
+                )
+                if has_empty_scaffold:
+                    logger.info(
+                        "[prompt_preset] 检测到旧版空条目，可能与预置条目重复，建议清理。"
+                    )
+            try:
+                flag_path.parent.mkdir(parents=True, exist_ok=True)
+                flag_path.write_text(
+                    f"initialized at {_dt.datetime.now().isoformat(timespec='seconds')}\n",
+                    encoding="utf-8",
+                )
+            except OSError as e:
+                logger.error("[prompt_preset] 写入初始化标记失败（%s），下次启动可能重复预置", e)
 
     # ------------------------------------------------------------------
     # 持久化
@@ -149,11 +260,17 @@ class EntryStore:
             return copy.deepcopy(coerced)
 
     def remove(self, name_or_id: str) -> dict | None:
-        """删除条目，返回被删条目；不存在返回 None。"""
+        """删除条目，返回被删条目；不存在返回 None。
+
+        M4：预置条目（preset=true）拒绝删除——预置把 AstrBot 原生内容交给
+        用户排序/开关，删掉即失去原生保护；不需要时禁用即可。
+        """
         with self._lock:
             found = self._find(name_or_id)
             if not found:
                 return None
+            if found.get("preset"):
+                raise EntryValidationError(PRESET_DELETE_MESSAGE)
             self._entries.remove(found)
             self.save()
             return copy.deepcopy(found)
@@ -239,6 +356,11 @@ def _coerce_entry(raw: dict) -> dict:
         enabled = enabled.strip().lower() in ("1", "true", "yes", "on", "启用")
     enabled = bool(enabled)
 
+    preset = raw.get("preset", False)
+    if isinstance(preset, str):
+        preset = preset.strip().lower() in ("1", "true", "yes", "on")
+    preset = bool(preset)
+
     return {
         "order": order,
         "role": role,
@@ -246,5 +368,6 @@ def _coerce_entry(raw: dict) -> dict:
         "content": content,
         "enabled": enabled,
         "name": name,
+        "preset": preset,
         "id": str(raw.get("id") or "").strip(),
     }

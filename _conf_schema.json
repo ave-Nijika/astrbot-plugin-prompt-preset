@@ -1,32 +1,16 @@
 {
   "entries": {
-    "description": "提示词条目列表",
+    "description": "提示词条目列表（一般无需填写）",
     "type": "list",
-    "hint": "JSON 数组，按 order 升序组装。此处仅作为首次安装的默认配置灌入 presets.json，此后以 data/plugin_data/astrbot_plugin_prompt_preset/presets.json 为唯一事实源（WebUI 改此项不会同步 presets.json）。",
-    "default": [
-      {
-        "order": 0,
-        "role": "system",
-        "source": "persona",
-        "content": "",
-        "enabled": true,
-        "name": "人格"
-      },
-      {
-        "order": 10,
-        "role": "system",
-        "source": "text",
-        "content": "",
-        "enabled": true,
-        "name": "自定义提示词"
-      }
-    ]
+    "items": {},
+    "hint": "按 order 升序组装。首次启动时插件会自动预置 13 条「原生-*」默认条目（把 AstrBot 原生提示词按真实顺序拆成独立块），此处留空即可；在此自定义的条目会追加到预置条目之后，此后以 data/plugin_data/astrbot_plugin_prompt_preset/presets.json 为唯一事实源。",
+    "default": []
   },
   "variables": {
     "description": "自定义变量",
     "type": "object",
     "items": {},
-    "hint": "条目 content 中的 {{key}} 会被替换为此处的值。内置变量 {{persona}}/{{user_name}}/{{bot_name}}/{{time}}/{{date}}/{{datetime}} 始终可用。",
+    "hint": "条目 content 中的 {{key}} 会被替换为此处的值。内置变量 {{persona}}/{{user_name}}/{{bot_name}}/{{time}}/{{date}}/{{datetime}} 始终可用；native_ 为保留前缀（插件按 AstrBot 原生内容自动填充），在此自定义会被忽略。",
     "default": {
       "user_name": "主人",
       "bot_name": "凛"

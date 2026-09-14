@@ -70,6 +70,7 @@ def make_plugin(
     persona=None,
     persona_error=None,
     context=None,
+    with_presets=False,
 ):
     """构造挂在 tmp_path 存储上的插件实例（不触碰真实 data/ 目录）。"""
     from astrbot_plugin_prompt_preset.main import PromptPresetPlugin
@@ -77,13 +78,35 @@ def make_plugin(
     cfg = {"enable": True, "variables": {}}
     cfg.update(config or {})
     ctx = context if context is not None else MockContext(persona=persona, persona_error=persona_error)
-    return PromptPresetPlugin(ctx, config=cfg, store_path=tmp_path / "presets.json")
+    plugin = PromptPresetPlugin(ctx, config=cfg, store_path=tmp_path / "presets.json")
+    if not with_presets:
+        _strip_presets(plugin.store)
+    return plugin
 
 
-def make_store(tmp_path, entries=None):
+def normalize_prompt(text: str) -> str:
+    """M4 等价性归一化（任务书规定）：按空行分段、逐段 strip、滤空后按序拼接。"""
+    pieces = [p.strip() for p in (text or "").split("\n\n")]
+    return "\n\n".join(p for p in pieces if p)
+
+
+def _strip_presets(store) -> None:
+    """剔除 store 中的预置条目并落盘（通用测试的空表语义，见 M4 with_presets）。"""
+    store._entries = [e for e in store._entries if not e.get("preset")]
+    store.save()
+
+
+def make_store(tmp_path, entries=None, with_presets=False):
+    """EntryStore 测试台架。
+
+    M4 起新装初始化会自动预置 13 条「原生-*」条目；通用测试默认剔除
+    （with_presets=False，保持既有测试语义），预置相关测试显式传 True。
+    """
     from astrbot_plugin_prompt_preset.core.entry_store import EntryStore
 
     store = EntryStore(tmp_path / "presets.json")
+    if not with_presets:
+        _strip_presets(store)
     for entry in entries or []:
         store.add(entry)
     return store

@@ -233,7 +233,15 @@ class PromptPresetPlugin(Star):
 
     def _build_var_context(self, persona_text: str) -> dict:
         now = _dt.datetime.now()
-        ctx = dict(self.config.get("variables") or {})
+        custom = self.config.get("variables") or {}
+        # M4：native_ 为保留变量前缀（真实取值由组装引擎按原生快照注入），
+        # 用户在配置里自定义 native_* 变量时忽略并告警。
+        reserved = [k for k in custom if str(k).startswith("native_")]
+        for key in reserved:
+            logger.warning(
+                "[prompt_preset] 自定义变量 %r 使用保留前缀 native_，已忽略。", key
+            )
+        ctx = {k: v for k, v in custom.items() if not str(k).startswith("native_")}
         ctx.update(
             {
                 "persona": persona_text,
@@ -343,7 +351,10 @@ class PromptPresetPlugin(Star):
     def _cmd_del(self, name: str) -> str:
         if not name:
             return "用法：/preset del <name>"
-        removed = self.store.remove(name)
+        try:
+            removed = self.store.remove(name)
+        except EntryValidationError as e:
+            return f"删除失败：{e}"
         if not removed:
             return f"未找到条目：{name}"
         return f"🗑 已删除条目「{removed['name']}」（order={removed['order']:g}）"
