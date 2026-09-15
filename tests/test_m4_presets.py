@@ -107,7 +107,7 @@ class TestPresetSeeding:
             ),
             encoding="utf-8",
         )
-        with caplog.at_level(logging.INFO, logger="astrbot.plugin.prompt_preset"):
+        with caplog.at_level(logging.INFO):  # 捕获所有冒泡记录（logger 可能被 main 注入为 astrbot 全局 logger）
             EntryStore(path)
         assert any("检测到旧版空条目" in r.message for r in caplog.records)
         assert store_has_name(path, "自定义提示词")  # 未自动删除
@@ -123,7 +123,7 @@ class TestPresetSeeding:
             ),
             encoding="utf-8",
         )
-        with caplog.at_level(logging.INFO, logger="astrbot.plugin.prompt_preset"):
+        with caplog.at_level(logging.INFO):  # 捕获所有冒泡记录（logger 可能被 main 注入为 astrbot 全局 logger）
             EntryStore(path)
         assert not any("检测到旧版空条目" in r.message for r in caplog.records)
 

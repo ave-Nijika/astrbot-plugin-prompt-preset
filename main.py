@@ -19,11 +19,17 @@ from astrbot.api.star import Context, Star, register
 try:  # AstrBot 以 data.plugins.<目录名>.main 作为包导入，相对导入可用
     from .core.assembler import PromptAssembler
     from .core.entry_store import EntryStore, EntryValidationError
+    from .core import entry_store as _entry_store_mod
     from .dashboard_api import ApiError, PromptPresetAPI
 except ImportError:  # 兜底：以普通目录方式加载时
     from core.assembler import PromptAssembler
     from core.entry_store import EntryStore, EntryValidationError
+    from core import entry_store as _entry_store_mod
     from dashboard_api import ApiError, PromptPresetAPI
+
+# 注入宿主 logger（astrbot.api.logger 自带 plugin_tag，与宿主日志格式器兼容）；
+# 必须在首个 EntryStore 实例化之前执行——模块加载期早于插件类实例化。
+_entry_store_mod.set_logger(logger)
 
 PLUGIN_NAME = "astrbot_plugin_prompt_preset"
 _api_request = None  # 运行时由 AstrBot web 模块赋值；测试中 monkeypatch 为 FakeApiRequest

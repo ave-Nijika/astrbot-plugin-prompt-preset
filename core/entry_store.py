@@ -25,6 +25,21 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger("astrbot.plugin.prompt_preset")
+"""默认标准库 logger：独立测试环境（无宿主）可用，caplog 可直接捕获。
+
+AstrBot 运行时由 main.py 通过 :func:`set_logger` 注入宿主 logger
+（astrbot.api.logger，自带 plugin_tag，与宿主日志格式器兼容）——
+依赖方向反转：core 不 import astrbot，由宿主入口主动注入。
+"""
+
+
+def set_logger(ext_logger) -> None:
+    """由宿主入口注入 logger（AstrBot 环境：astrbot.api.logger）。
+
+    必须在创建第一个 EntryStore 实例之前调用（main.py 模块加载时执行）。
+    """
+    global logger
+    logger = ext_logger
 
 VALID_ROLES = ("system", "user", "assistant")
 VALID_SOURCES = ("text", "persona", "chat_history")
