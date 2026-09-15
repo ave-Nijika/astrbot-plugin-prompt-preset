@@ -511,6 +511,71 @@ async function togglePreview() {
   drawer.classList.remove("hidden");
 }
 
+/* ---------------- 帮助文档（M4.1：内容镜像自 README「预置条目说明」章节，以 README 为准） ---------------- */
+
+const PRESET_DOC_ROWS = [
+  ["原生-安全模式", "{{native_safety}}", "AstrBot「健康模式」注入的安全规则提示（英文）", "WebUI 健康模式开启时", "关闭健康模式后自动为空，无需处理"],
+  ["原生-ChatUI生成", "{{native_genui}}", "WebUI 聊天页 HTML 生成功能的说明", "使用 WebUI 聊天的 HTML 生成时", "QQ 场景恒为空"],
+  ["原生-人格说明", "{{native_persona}}", "AstrBot 人设全文（含 \"# Persona Instructions\" 标题）", "配置了人设时", "想用自己的文本替代人设：禁用此条，新建自己的条目"],
+  ["原生-默认人格", "{{native_default_persona}}", "无 人设 时 WebUI 的内置默认人格（英文）", "仅 WebUI 且未配置人设时", "QQ 场景恒为空"],
+  ["原生-技能说明", "{{native_skills}}", "AstrBot 技能（Skills）列表与用法说明", "有可用技能时", "不用技能时自动为空"],
+  ["原生-路由提示", "{{native_router}}", "多 Agent 路由提示（来自用户配置，无固定标记）", "当前恒为空（内容归入相邻块）", "无需处理"],
+  ["原生-沙箱说明", "{{native_sandbox}}", "沙箱代码执行环境说明", "沙箱功能启用时", "未启用沙箱时自动为空"],
+  ["原生-本地模式", "{{native_local_mode}}", "本地 shell/python 工具环境说明", "计算机使用运行时=本地 时", "不使用本地工具时自动为空"],
+  ["原生-工具说明", "{{native_tools}}", "工具调用行为规范（英文，244/577 字符）", "注册了任意 LLM 工具时", "只要装了带工具的插件就非空；不可移除但可排序"],
+  ["原生-Live模式", "{{native_live}}", "实时语音模式说明", "Live 语音模式启用时", "不用 Live 时自动为空"],
+  ["原生-搜索引用", "{{native_websearch}}", "网页搜索结果的引用格式要求", "启用网页搜索时", "不用搜索时自动为空"],
+  ["原生-其他插件注入", "{{native_other}}", "其他插件（如 astrbot-living 的心境注入）追加的内容，无固定标记的兜底块", "有其他插件注入时", "装了会注入提示词的插件就非空；删除保护防止它隐身"],
+  ["对话历史", "（source=chat_history）", "原样展开之前的对话消息", "总是", "建议保持最后（order 最大）"],
+];
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderHelpModal() {
+  const rows = PRESET_DOC_ROWS.map(
+    ([name, variable, desc, when, tweak]) =>
+      `<tr><td>${escapeHtml(name)}</td><td><code>${escapeHtml(variable)}</code></td><td>${escapeHtml(desc)}</td><td>${escapeHtml(when)}</td><td>${escapeHtml(tweak)}</td></tr>`
+  ).join("");
+  $("#help-body").innerHTML = `
+    <p class="help-mirror">内容镜像自 README「预置条目说明」章节，以 README 为准。</p>
+    <div class="help-table-wrap">
+      <table class="help-table">
+        <thead><tr><th>条目</th><th>引用变量</th><th>内容说明</th><th>何时非空</th><th>常见调整</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="help-section">
+      <h3>机制说明</h3>
+      <ul>
+        <li><b>「我最新发的消息在哪？」</b>：它不在任何条目里。发送顺序 = 条目组装的 system_prompt → 对话历史 → <b>你的最新消息（固定在整段消息最末尾，由 AstrBot 追加）</b>。进阶玩法：新建 source=text、role=user 的条目并把 order 设为大于"对话历史"，其内容会作为一条消息插在历史之后、你的最新消息之前。</li>
+        <li><b>空值自动跳过</b>：某条目引用的变量当前为空（如健康模式关闭时的安全模式），该条目不会产生任何消息——预置条目在"什么都没装"的机器上等效于原生行为。</li>
+      </ul>
+    </div>
+    <div class="help-section">
+      <h3>保护规则与恢复</h3>
+      <ul>
+        <li>预置条目 🔒 不可删除（删除会提示"预置条目不可删除，如不需要请禁用该条目"）；可编辑内容、可禁用、可拖拽排序。</li>
+        <li>改乱了想恢复：把 content 改回对应的单个变量引用即可（对照表第二列就是）；直接手改 presets.json 删除 preset 条目不受保护且不会自动重建。</li>
+        <li><code>native_</code> 前缀为保留变量前缀；<code>{{memories}}</code> 为进阶变量（LivingMemory 已自行注入记忆时不要重复使用）。</li>
+      </ul>
+    </div>`;
+}
+
+function openHelpModal() {
+  renderHelpModal();
+  $("#help-mask").classList.remove("hidden");
+}
+
+function closeHelpModal() {
+  $("#help-mask").classList.add("hidden");
+}
+
 /* ---------------- 事件绑定与启动 ---------------- */
 
 $("#btn-add").addEventListener("click", startNewEntry);
@@ -518,6 +583,16 @@ $("#btn-import").addEventListener("click", openImportModal);
 $("#btn-export").addEventListener("click", openExportModal);
 $("#btn-variables").addEventListener("click", openVariablesModal);
 $("#btn-preview").addEventListener("click", togglePreview);
+$("#btn-help").addEventListener("click", openHelpModal);
+$("#help-close").addEventListener("click", closeHelpModal);
+$("#help-mask").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeHelpModal(); // 点击遮罩关闭
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#help-mask").classList.contains("hidden")) {
+    closeHelpModal();
+  }
+});
 $("#preview-close").addEventListener("click", () => $("#preview-drawer").classList.add("hidden"));
 editorEl.addEventListener("submit", saveEditor);
 $("#btn-delete").addEventListener("click", deleteOrCancel);

@@ -20,6 +20,7 @@
       <button id="btn-export" class="btn" type="button">📤 导出 JSON</button>
       <button id="btn-variables" class="btn" type="button">🔀 自定义变量</button>
       <button id="btn-preview" class="btn" type="button">👁 组装预览</button>
+      <button id="btn-help" class="btn" type="button">📖 说明</button>
     </div>
   </header>
 
@@ -103,6 +104,17 @@
         <button id="modal-cancel" class="btn" type="button">取消</button>
         <button id="modal-ok" class="btn primary" type="button">确认</button>
       </div>
+    </div>
+  </div>
+
+  <!-- M4.1：预置条目帮助文档（内容镜像自 README，见 app.js HELP_DOC） -->
+  <div id="help-mask" class="help-mask hidden">
+    <div class="help-card" role="dialog" aria-modal="true" aria-label="预置条目说明">
+      <div class="help-head">
+        <h2>📖 预置条目说明</h2>
+        <button id="help-close" class="btn" type="button">✕ 关闭</button>
+      </div>
+      <div id="help-body" class="help-body"></div>
     </div>
   </div>
 
