@@ -448,5 +448,5 @@ class TestHTTP:
         _, client = http_client
         resp = client.get("/api/prompt_preset/variables")
         assert resp.json()["variables"]["user_name"] == "主人"
-        resp = client.put("/api/prompt_preset/variables", json={"user_name": "ave-Nijika"})
-        assert resp.json()["variables"] == {"user_name": "ave-Nijika"}
+        resp = client.put("/api/prompt_preset/variables", json={"user_name": "测试用户"})
+        assert resp.json()["variables"] == {"user_name": "测试用户"}
