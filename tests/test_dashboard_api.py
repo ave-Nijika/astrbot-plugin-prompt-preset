@@ -232,25 +232,50 @@ class TestAdapter:
         pairs = {(route, tuple(methods)) for route, _, methods, _ in ctx.registered_routes}
         p = "/astrbot_plugin_prompt_preset"
         # 任务书需求 A 的 8 个端点（含动态段）全部注册（POST 别名供 Pages bridge 使用）
-        assert (f"{p}/entries", ("GET", "POST")) in pairs
+        # 紧急修复 P0：GET/POST 拆为独立 handler，不再合并方法表
+        assert (f"{p}/entries", ("GET",)) in pairs
+        assert (f"{p}/entries", ("POST",)) in pairs
         assert (f"{p}/entries/reorder", ("PUT", "POST")) in pairs
         assert (f"{p}/entries/<item_id>", ("PUT", "POST")) in pairs
         assert (f"{p}/entries/<item_id>", ("DELETE",)) in pairs
         assert (f"{p}/entries/<item_id>/delete", ("POST",)) in pairs
-        assert (f"{p}/variables", ("GET", "PUT", "POST")) in pairs
+        assert (f"{p}/variables", ("GET",)) in pairs
+        assert (f"{p}/variables", ("PUT", "POST")) in pairs
         assert (f"{p}/preview", ("GET",)) in pairs
-        assert len(ctx.registered_routes) == 7
+        assert len(ctx.registered_routes) == 9
         # 全部 handler 带描述
         assert all(desc for _, _, _, desc in ctx.registered_routes)
 
-    def test_adapter_post_branch_creates_entry(self, tmp_path, monkeypatch):
+    def test_get_post_bound_to_distinct_handlers(self, tmp_path):
+        """P0 修复锚定：同一路由的 GET 与 POST 必须绑定不同 handler
+        （不依赖 _api_request.method 区分——真实环境该变量为 None）。"""
+        ctx = MockDashboardContext()
+        make_plugin(tmp_path, context=ctx)
+        entries_routes = {
+            tuple(methods): handler
+            for route, handler, methods, _ in ctx.registered_routes
+            if route.endswith("/entries")
+        }
+        assert entries_routes[("GET",)].__name__ == "_api_entries_get"
+        assert entries_routes[("POST",)].__name__ == "_api_entries_post"
+        assert entries_routes[("GET",)] is not entries_routes[("POST",)]
+        var_routes = {
+            tuple(methods): handler
+            for route, handler, methods, _ in ctx.registered_routes
+            if route.endswith("/variables")
+        }
+        assert var_routes[("GET",)] is not var_routes[("PUT", "POST")]
+        assert var_routes[("GET",)].__name__ == "_api_variables_get"
+        assert var_routes[("PUT", "POST")].__name__ == "_api_variables_put"
+
+    def test_adapter_post_creates_entry(self, tmp_path, monkeypatch):
         import astrbot_plugin_prompt_preset.main as plugin_main
 
         plugin = make_plugin(tmp_path)
         monkeypatch.setattr(
             plugin_main, "_api_request", FakeApiRequest("POST", {"order": 1, "name": "面板加的"})
         )
-        result = run(plugin._api_entries())
+        result = run(plugin._api_entries_post())
         assert result["status"] == "ok"
         assert result["data"]["entry"]["name"] == "面板加的"
         assert plugin.store.get("面板加的")
@@ -262,7 +287,7 @@ class TestAdapter:
         monkeypatch.setattr(
             plugin_main, "_api_request", FakeApiRequest("POST", {"order": 1, "role": "boss", "name": "x"})
         )
-        result = run(plugin._api_entries())
+        result = run(plugin._api_entries_post())
         assert result["status"] == "error"
         assert result["status_code"] == 400
         assert "role" in result["message"]
@@ -273,7 +298,7 @@ class TestAdapter:
         plugin = make_plugin(tmp_path)
         plugin.store.add({"order": 0, "name": "已有"})
         monkeypatch.setattr(plugin_main, "_api_request", FakeApiRequest("GET"))
-        result = run(plugin._api_entries())
+        result = run(plugin._api_entries_get())
         assert [e["name"] for e in result["data"]["entries"]] == ["已有"]
 
 

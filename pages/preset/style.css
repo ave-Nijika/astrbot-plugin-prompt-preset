@@ -114,6 +114,13 @@ button { font: inherit; color: inherit; }
 }
 .btn.danger:disabled:hover { background: var(--bg-inset); color: var(--text-dim); }
 
+/* 两击删除的待确认态（sandboxed iframe 无 confirm，见 app.js deleteOrCancel） */
+.btn.danger.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
 /* ---------------- 主分栏 ---------------- */
 .split {
   flex: 1;

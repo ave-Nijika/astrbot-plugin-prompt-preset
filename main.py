@@ -172,6 +172,10 @@ class PromptPresetPlugin(Star):
 
         route 必须带插件名前缀（dashboard 按 /api/plug/<route> 挂载）。
         bridge 只提供 GET/POST，更新/删除/重排序额外注册 POST 别名。
+
+        紧急修复（P0）：GET/POST 拆分为独立 handler，不依赖 `_api_request`
+        区分方法——真实 AstrBot 环境该变量为 None，旧写法令 POST 恒走 GET
+        分支，新增条目/变量写入从不落盘。
         """
         register = getattr(self.context, "register_web_api", None)
         if not callable(register):
@@ -180,12 +184,14 @@ class PromptPresetPlugin(Star):
 
         prefix = f"/{PLUGIN_NAME}"
         routes = [
-            (f"{prefix}/entries", self._api_entries, ["GET", "POST"], "条目列表/新增"),
+            (f"{prefix}/entries", self._api_entries_get, ["GET"], "条目列表"),
+            (f"{prefix}/entries", self._api_entries_post, ["POST"], "新增条目"),
             (f"{prefix}/entries/reorder", self._api_entries_reorder, ["PUT", "POST"], "重排序"),
             (f"{prefix}/entries/<item_id>", self._api_entry_put, ["PUT", "POST"], "更新条目"),
             (f"{prefix}/entries/<item_id>", self._api_entry_delete, ["DELETE"], "删除条目"),
             (f"{prefix}/entries/<item_id>/delete", self._api_entry_delete, ["POST"], "删除条目（bridge 别名）"),
-            (f"{prefix}/variables", self._api_variables, ["GET", "PUT", "POST"], "自定义变量"),
+            (f"{prefix}/variables", self._api_variables_get, ["GET"], "自定义变量读取"),
+            (f"{prefix}/variables", self._api_variables_put, ["PUT", "POST"], "自定义变量写入"),
             (f"{prefix}/preview", self._api_preview, ["GET"], "组装结果预览"),
         ]
         for route, handler, methods, desc in routes:
@@ -203,11 +209,12 @@ class PromptPresetPlugin(Star):
             logger.exception("[prompt_preset] API 内部错误")
             return {"status": "error", "message": "内部错误", "status_code": 500}
 
-    async def _api_entries(self):
-        if _api_request and _api_request.method == "POST":
-            payload = await _request_json(default={})
-            return await self._api_call(lambda: self._api.entries_post(payload))
+    async def _api_entries_get(self):
         return await self._api_call(self._api.entries_get)
+
+    async def _api_entries_post(self):
+        payload = await _request_json(default={})
+        return await self._api_call(lambda: self._api.entries_post(payload))
 
     async def _api_entry_put(self, item_id: str = ""):
         payload = await _request_json()
@@ -220,11 +227,12 @@ class PromptPresetPlugin(Star):
         payload = await _request_json()
         return await self._api_call(lambda: self._api.entries_reorder(payload))
 
-    async def _api_variables(self):
-        if _api_request is not None and _api_request.method in ("PUT", "POST"):
-            payload = await _request_json(default={})
-            return await self._api_call(lambda: self._api.variables_put(payload))
+    async def _api_variables_get(self):
         return await self._api_call(self._api.variables_get)
+
+    async def _api_variables_put(self):
+        payload = await _request_json(default={})
+        return await self._api_call(lambda: self._api.variables_put(payload))
 
     async def _api_preview(self):
         return await self._api_call(self._api.preview_get)

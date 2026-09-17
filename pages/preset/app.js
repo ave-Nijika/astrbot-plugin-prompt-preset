@@ -203,8 +203,9 @@ function renderEditor() {
   const entry = state.entries.find((e) => e.id === state.selectedId);
   // classList.toggle 的 force 参数传 undefined 时等于"翻转"而非 false，必须显式转布尔
   const hasTarget = Boolean(state.isNew || entry);
+  resetDeleteArm(); // 切换/重渲染时解除两击删除的待确认状态
   editorEl.classList.toggle("hidden", !hasTarget);
-  $("#editor-empty").classList.toggle("hidden", hasTarget);
+  $("#editor-empty").classList.toggle("hidden", !hasTarget);
   if (!hasTarget) return;
 
   const source = state.isNew ? "text" : entry.source;
@@ -282,8 +283,17 @@ async function saveEditor(event) {
   if (payload.order === undefined) delete payload.order;
   if (state.isNew) {
     const data = await api(() => bridge.apiPost("entries", payload), `已添加「${payload.name}」`);
+    // 紧急修复 Bug 4：后端异常响应（无 entry.id，如 P0 期间 POST 走到 GET 分支）
+    // 时不再让 selectedId 变成 undefined 连锁炸编辑器——提示并强制刷新列表。
+    const newId = data && data.entry && data.entry.id;
+    if (!newId) {
+      toast("后端未返回条目 id，已刷新列表", true);
+      setStatus("添加异常：后端未返回条目 id");
+      await loadEntries({ keepSelection: false });
+      return;
+    }
     state.isNew = false;
-    state.selectedId = data.entry.id;
+    state.selectedId = newId;
   } else {
     await api(
       () => bridge.apiPost(`entries/${state.selectedId}`, payload),
@@ -292,6 +302,24 @@ async function saveEditor(event) {
   }
   await loadEntries();
   if (state.selectedId) selectEntry(state.selectedId);
+}
+
+// 紧急修复 Bug 3：Pages 面板运行在 sandboxed iframe（无 allow-modals），
+// window.confirm() 被浏览器忽略导致删除永远无法进行——改为两击确认。
+let deleteArmed = false;
+let deleteArmTimer = null;
+
+function resetDeleteArm() {
+  deleteArmed = false;
+  if (deleteArmTimer) {
+    clearTimeout(deleteArmTimer);
+    deleteArmTimer = null;
+  }
+  const btn = $("#btn-delete");
+  if (btn) {
+    btn.textContent = "🗑 删除";
+    btn.classList.remove("armed");
+  }
 }
 
 async function deleteOrCancel() {
@@ -307,7 +335,16 @@ async function deleteOrCancel() {
     toast("预置条目不可删除，如不需要请禁用该条目", true);
     return;
   }
-  if (!window.confirm(`确认删除条目「${entry.name}」？`)) return;
+  const btn = $("#btn-delete");
+  if (!deleteArmed) {
+    deleteArmed = true;
+    btn.textContent = "⚠ 再次点击确认删除";
+    btn.classList.add("armed");
+    deleteArmTimer = setTimeout(resetDeleteArm, 3000);
+    setStatus(`再次点击「删除」确认移除「${entry.name}」`);
+    return;
+  }
+  resetDeleteArm();
   await api(() => bridge.apiPost(`entries/${entry.id}/delete`), `已删除「${entry.name}」`);
   state.selectedId = null;
   await loadEntries();
@@ -597,6 +634,21 @@ $("#preview-close").addEventListener("click", () => $("#preview-drawer").classLi
 editorEl.addEventListener("submit", saveEditor);
 $("#btn-delete").addEventListener("click", deleteOrCancel);
 $("#f-source").addEventListener("change", (e) => applySourceUI(e.target.value));
+// 紧急修复 Bug 1：右侧"启用"勾选即时同步后端与左侧列表开关（无需点保存）
+$("#f-enabled").addEventListener("change", async (e) => {
+  if (state.isNew) return; // 新建模式尚无 id，仍由保存统一提交
+  const entry = state.entries.find((x) => x.id === state.selectedId);
+  if (!entry) return;
+  const target = e.target.checked;
+  try {
+    await api(() => bridge.apiPost(`entries/${entry.id}`, { enabled: target }));
+    entry.enabled = target;
+    renderList();
+    setStatus(`已${target ? "启用" : "禁用"}「${entry.name}」`);
+  } catch {
+    e.target.checked = !target; // 失败回滚勾选
+  }
+});
 
 await loadEntries({ keepSelection: false });
 setStatus("就绪", "改动即时写入 presets.json，下一次 LLM 请求生效");
